@@ -21,9 +21,7 @@ build/
 venv/
 env/
 
-# Vector store (large binary files — regenerate from PDFs)
-vectorstore/index.faiss
-vectorstore/index.pkl
+# Vector store files are committed when you want Render to use a prebuilt index.
 
 # macOS
 .DS_Store
