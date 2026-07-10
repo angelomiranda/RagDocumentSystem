@@ -22,8 +22,9 @@ CHUNK_OVERLAP = 50    # overlap between consecutive chunks
 # ---------------------------------------------------------------------------
 # Embedding
 # ---------------------------------------------------------------------------
-# Set USE_OPENAI_EMBEDDINGS = True to swap HuggingFace for OpenAI embeddings.
-USE_OPENAI_EMBEDDINGS = False
+# Use OpenAI embeddings by default to avoid loading large sentence-transformer
+# models in the container. This is friendlier for Render's 512MB free tier.
+USE_OPENAI_EMBEDDINGS = True
 HF_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
 
