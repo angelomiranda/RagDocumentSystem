@@ -162,7 +162,24 @@ def main() -> None:
             "or calling `build_vectorstore()` from `src/embedder.py`.",
             icon="⚠️",
         )
-        st.stop()
+        with st.sidebar:
+            if st.button("Build vectorstore now", use_container_width=True):
+                with st.spinner("Building vectorstore — this may take a while…"):
+                    try:
+                        # Import here so we don't require heavy deps at module import time
+                        from pdf_loader import load_and_chunk_pdfs
+                        from embedder import build_vectorstore
+
+                        chunks = load_and_chunk_pdfs()
+                        if not chunks:
+                            st.error("No PDFs found in data/reports/. Upload PDFs and retry.")
+                        else:
+                            build_vectorstore(chunks)
+                            st.success("Vectorstore built successfully. Reloading…")
+                            st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Failed to build vectorstore: {e}")
+        # allow the page to continue so the sidebar remains interactive
 
     if not api_key:
         st.error(
