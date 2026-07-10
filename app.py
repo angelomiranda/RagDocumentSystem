@@ -43,151 +43,207 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from config import VECTORSTORE_DIR, TOP_K, LLM_MODEL  # noqa: E402
 
-# ---------------------------------------------------------------------------
-# Page config
-# ---------------------------------------------------------------------------
 
-st.set_page_config(
-    page_title="RAG Document Q&A",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+def resolve_openai_api_key(session_value: str | None = None, env_value: str | None = None) -> str:
+    """Return the most relevant API key for the current session."""
+    candidate = (session_value or "").strip()
+    if candidate:
+        return candidate
+    candidate = (env_value or "").strip()
+    return candidate
 
-# ---------------------------------------------------------------------------
-# Sidebar — controls
-# ---------------------------------------------------------------------------
 
-with st.sidebar:
-    st.title("⚙️ Settings")
-
-    top_k = st.slider(
-        "Chunks retrieved (top-k)",
-        min_value=1,
-        max_value=15,
-        value=TOP_K,
-        help="How many document chunks the retriever passes to the LLM.",
+def _is_missing_information_answer(answer: str) -> bool:
+    """Return True when the model explicitly says it could not find the requested info."""
+    normalized_answer = (answer or "").lower()
+    missing_information_phrases = (
+        "i could not find this information",
+        "could not find this information",
+        "not found in the provided reports",
+        "no relevant information",
     )
+    return any(phrase in normalized_answer for phrase in missing_information_phrases)
 
-    show_sources = st.toggle("Show source chunks", value=True)
 
-    st.divider()
-    st.caption(f"Model: **{LLM_MODEL}**")
+def should_display_sources(answer: str, sources: list | None = None) -> bool:
+    """Return True only when the answer should include source details."""
+    if not sources:
+        return False
+    return not _is_missing_information_answer(answer)
 
-    vectorstore_exists = VECTORSTORE_DIR.exists() and any(VECTORSTORE_DIR.iterdir())
-    if vectorstore_exists:
-        st.success("Vectorstore loaded ✓")
-    else:
-        st.error("Vectorstore not found")
-        st.caption(
-            "Build it first:\n```python\n"
-            "from src.embedder import build_vectorstore\n"
-            "build_vectorstore()\n```"
-        )
-
-    st.divider()
-    if st.button("🗑️ Clear chat history"):
-        st.session_state.messages = []
-        st.rerun()
-
-# ---------------------------------------------------------------------------
-# QA chain — cached so it is only initialised once per session
-# ---------------------------------------------------------------------------
 
 @st.cache_resource(show_spinner="Loading QA chain…")
-def load_chain(k: int):
+def load_chain(k: int, api_key_value: str):
+    if api_key_value:
+        os.environ["OPENAI_API_KEY"] = api_key_value
     from qa_chain import build_qa_chain
     return build_qa_chain(k=k)
 
 
-# ---------------------------------------------------------------------------
-# Main UI
-# ---------------------------------------------------------------------------
-
-st.title("📊 RAG Document Q&A")
-st.caption("Ask questions about your earnings reports. Answers are grounded in the source PDFs.")
-
-if not vectorstore_exists:
-    st.warning(
-        "No vectorstore found. Build the index first by running the notebook "
-        "or calling `build_vectorstore()` from `src/embedder.py`.",
-        icon="⚠️",
+def main() -> None:
+    """Run the Streamlit UI."""
+    st.set_page_config(
+        page_title="RAG Document Q&A",
+        page_icon="📊",
+        layout="wide",
+        initial_sidebar_state="expanded",
     )
-    st.stop()
 
-if not os.environ.get("OPENAI_API_KEY"):
-    st.error(
-        "**OPENAI_API_KEY** is not set. Add it to your `.env` file and restart.",
-        icon="🔑",
+    # -----------------------------------------------------------------------
+    # Sidebar — controls
+    # -----------------------------------------------------------------------
+    with st.sidebar:
+        st.title("⚙️ Settings")
+
+        if "openai_api_key" not in st.session_state:
+            st.session_state.openai_api_key = os.environ.get("OPENAI_API_KEY", "")
+
+        st.text_input(
+            "OpenAI API Key",
+            type="password",
+            key="openai_api_key",
+            help=(
+                "Enter your own OpenAI API key for this session. "
+                "Leave it blank to use the key from .env or your deployment secrets."
+            ),
+        )
+
+        top_k = st.slider(
+            "Chunks retrieved (top-k)",
+            min_value=1,
+            max_value=15,
+            value=TOP_K,
+            help="How many document chunks the retriever passes to the LLM.",
+        )
+
+        show_sources = st.toggle("Show source chunks", value=True)
+
+        st.divider()
+        st.caption(f"Model: **{LLM_MODEL}**")
+
+        vectorstore_exists = VECTORSTORE_DIR.exists() and any(VECTORSTORE_DIR.iterdir())
+        if vectorstore_exists:
+            st.success("Vectorstore loaded ✓")
+        else:
+            st.error("Vectorstore not found")
+            st.caption(
+                "Build it first:\n```python\n"
+                "from src.embedder import build_vectorstore\n"
+                "build_vectorstore()\n```"
+            )
+
+        st.divider()
+        if st.button("🗑️ Clear chat history"):
+            st.session_state.messages = []
+            st.rerun()
+
+    # -----------------------------------------------------------------------
+    # Main UI
+    # -----------------------------------------------------------------------
+    api_key = resolve_openai_api_key(
+        session_value=st.session_state.get("openai_api_key", ""),
+        env_value=os.environ.get("OPENAI_API_KEY", ""),
     )
-    st.stop()
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
 
-# Chat history stored in session state
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.title("📊 RAG Document Q&A")
+    st.caption("Ask questions about your earnings reports. Answers are grounded in the source PDFs.")
 
-# Render previous messages
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        if msg["role"] == "assistant" and show_sources and msg.get("sources"):
-            with st.expander("Sources", expanded=False):
-                for chunk in msg["sources"]:
-                    meta = chunk.metadata
-                    st.markdown(
-                        f"**{meta.get('source', 'unknown')}** — "
-                        f"*{meta.get('company', '')} "
-                        f"{meta.get('quarter', '')} "
-                        f"{meta.get('year', '')}*, "
-                        f"page {meta.get('page', '?')}"
-                    )
-                    st.code(chunk.page_content, language=None)
+    if not vectorstore_exists:
+        st.warning(
+            "No vectorstore found. Build the index first by running the notebook "
+            "or calling `build_vectorstore()` from `src/embedder.py`.",
+            icon="⚠️",
+        )
+        st.stop()
 
-# Chat input
-query = st.chat_input("Ask a question about the earnings reports…")
+    if not api_key:
+        st.error(
+            "**OPENAI_API_KEY** is not set. Enter a key in the sidebar or set it in your environment or `.env` file.",
+            icon="🔑",
+        )
+        st.stop()
 
-if query:
-    # Display user message
-    st.session_state.messages.append({"role": "user", "content": query})
-    with st.chat_message("user"):
-        st.markdown(query)
+    # Chat history stored in session state
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-    # Generate answer
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking…"):
-            try:
-                chain = load_chain(top_k)
-                from qa_chain import ask
-                result = ask(query, qa_chain=chain)
-                answer = result["answer"]
-                sources = result["sources"]
-                citation_line = (
-                    "\n\n---\n**Sources:** " + " · ".join(result["source_summary"])
-                    if result["source_summary"]
-                    else ""
+    # Render previous messages
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg["role"] == "assistant" and show_sources:
+                display_sources = msg.get(
+                    "display_sources",
+                    should_display_sources(msg.get("content", ""), msg.get("sources")),
                 )
-            except Exception as exc:
-                answer = f"❌ Error: {exc}"
-                sources = []
-                citation_line = ""
+                if display_sources and msg.get("sources"):
+                    with st.expander("Sources", expanded=False):
+                        for chunk in msg["sources"]:
+                            meta = chunk.metadata
+                            st.markdown(
+                                f"**{meta.get('source', 'unknown')}** — "
+                                f"*{meta.get('company', '')} "
+                                f"{meta.get('quarter', '')} "
+                                f"{meta.get('year', '')}*, "
+                                f"page {meta.get('page', '?')}"
+                            )
+                            st.code(chunk.page_content, language=None)
 
-        st.markdown(answer + citation_line)
+    # Chat input
+    query = st.chat_input("Ask a question about the earnings reports…")
 
-        if show_sources and sources:
-            with st.expander("Sources", expanded=False):
-                for chunk in sources:
-                    meta = chunk.metadata
-                    st.markdown(
-                        f"**{meta.get('source', 'unknown')}** — "
-                        f"*{meta.get('company', '')} "
-                        f"{meta.get('quarter', '')} "
-                        f"{meta.get('year', '')}*, "
-                        f"page {meta.get('page', '?')}"
+    if query:
+        # Display user message
+        st.session_state.messages.append({"role": "user", "content": query})
+        with st.chat_message("user"):
+            st.markdown(query)
+
+        # Generate answer
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking…"):
+                try:
+                    chain = load_chain(top_k, api_key_value=api_key)
+                    from qa_chain import ask
+                    result = ask(query, qa_chain=chain)
+                    answer = result["answer"]
+                    sources = result["sources"]
+                    source_summary = result.get("source_summary", [])
+                    display_sources = show_sources and should_display_sources(answer, sources)
+                    citation_line = (
+                        "\n\n---\n**Sources:** " + " · ".join(source_summary)
+                        if display_sources and source_summary
+                        else ""
                     )
-                    st.code(chunk.page_content, language=None)
+                except Exception as exc:
+                    answer = f"❌ Error: {exc}"
+                    sources = []
+                    citation_line = ""
+                    display_sources = False
 
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": answer + citation_line,
-        "sources": sources,
-    })
+            st.markdown(answer + citation_line)
+
+            if display_sources and sources:
+                with st.expander("Sources", expanded=False):
+                    for chunk in sources:
+                        meta = chunk.metadata
+                        st.markdown(
+                            f"**{meta.get('source', 'unknown')}** — "
+                            f"*{meta.get('company', '')} "
+                            f"{meta.get('quarter', '')} "
+                            f"{meta.get('year', '')}*, "
+                            f"page {meta.get('page', '?')}"
+                        )
+                        st.code(chunk.page_content, language=None)
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer + citation_line,
+            "sources": sources,
+            "display_sources": display_sources,
+        })
+
+
+if __name__ == "__main__":
+    main()

@@ -123,8 +123,64 @@ source .venv/bin/activate
 python -m streamlit run app.py
 ```
 
-Opens a chat interface at **http://localhost:8501**.  
+Opens a chat interface at **http://localhost:8501**.
 The vectorstore must be built first (Step 5 or `build_vectorstore()`).
+
+You can now enter your own OpenAI API key directly in the sidebar. That key is used for the current session only and is more flexible than relying on a single `.env` value.
+
+---
+
+## Docker deployment
+
+A Dockerfile is included so you can run the app in a container with the same paths and dependencies as the local setup.
+
+### Build the image
+
+```bash
+docker build -t rag-doc-qa .
+```
+
+### Run the container
+
+```bash
+docker run --rm -p 8501:8501 \
+  -e OPENAI_API_KEY=sk-your-openai-key-here \
+  rag-doc-qa
+```
+
+If you do not want to pass the key in the command line, you can leave it out and enter it in the sidebar after the app opens.
+
+> The container uses the same repository structure, so the app can find [app.py](app.py), [src](src), [data](data), and [vectorstore](vectorstore) correctly.
+
+---
+
+## Render deployment
+
+Render can deploy this app directly from the included Dockerfile.
+
+### Option 1: Deploy with the Render dashboard
+
+1. Push this repository to GitHub.
+2. In Render, create a new Web Service.
+3. Choose the GitHub repository and select the Docker environment.
+4. Render will automatically use the included Dockerfile.
+5. Add an environment variable named `OPENAI_API_KEY` with your OpenAI key, or leave it blank and enter the key in the sidebar after the app is live.
+6. Render will start the app on port `8501`.
+
+### Option 2: Deploy with render.yaml
+
+A [render.yaml](render.yaml) file is included for blueprint deployments.
+
+```bash
+render blueprint create
+```
+
+### Important deployment notes
+
+- The app listens on `0.0.0.0` inside the container so Render can reach it.
+- The Streamlit port is set to `8501` and uses the container's `$PORT` when available.
+- The vectorstore already included in this repository is used at runtime, so the app can start without rebuilding the index first.
+- If you add new PDFs later, rebuild the vectorstore locally or inside a one-off container before redeploying.
 
 ---
 

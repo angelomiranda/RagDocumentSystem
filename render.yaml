@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: rag-document-system
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: 8501
+      - key: OPENAI_API_KEY
+        sync: false
