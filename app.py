@@ -107,6 +107,12 @@ def main() -> None:
                 "Leave it blank to use the key from .env or your deployment secrets."
             ),
         )
+        # Non-sensitive indicator showing whether a non-empty OPENAI_API_KEY is available
+        env_has_key = bool((os.environ.get("OPENAI_API_KEY") or "").strip())
+        if env_has_key:
+            st.caption("OPENAI_API_KEY present in environment: ✓")
+        else:
+            st.caption("OPENAI_API_KEY present in environment: ✗")
 
         top_k = st.slider(
             "Chunks retrieved (top-k)",
