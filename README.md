@@ -241,6 +241,10 @@ OpenAI API key.
 
 ---
 
+## Demo screenshots
+
+![RAG Document Q&A demo](rag-app-demo.png)
+
 ## Streamlit UI
 
 The optional browser interface (`app.py`) provides:
